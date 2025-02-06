@@ -7,14 +7,17 @@
         /* 基础样式 */
         body {
             font-family: Arial, sans-serif;
-            background: #f5f5f5;
             margin: 0;
             padding: 20px;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            min-height: 100vh;
         }
         .player {
             max-width: 600px;
             margin: 0 auto;
-            background: white;
+            background: rgba(255, 255, 255, 0.8);
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
@@ -74,6 +77,12 @@
 </head>
 <body>
     <div class="player">
+        <!-- 背景设置 -->
+        <div>
+            <input type="file" id="backgroundInput" accept="image/*" onchange="setBackground(event)">
+            <button onclick="clearBackground()">清除背景</button>
+        </div>
+
         <!-- 搜索区域 -->
         <div>
             <input type="text" id="searchInput" placeholder="输入歌名或歌手">
@@ -127,6 +136,23 @@
             kugou: 'https://kugou-api.vercel.app/',
             migu: 'https://migu-api.vercel.app/'
         };
+
+        // 设置背景
+        function setBackground(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.body.style.backgroundImage = `url(${e.target.result})`;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // 清除背景
+        function clearBackground() {
+            document.body.style.backgroundImage = '';
+        }
 
         // 搜索功能
         async function searchMusic() {

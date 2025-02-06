@@ -121,18 +121,49 @@
         let currentLyrics = [];
         let currentDuration = 0;
 
+        // 使用稳定的公共API配置
+        const APIs = {
+            netease: 'https://netease-api.vercel.app/',
+            kugou: 'https://kugou-api.vercel.app/',
+            migu: 'https://migu-api.vercel.app/'
+        };
+
         // 搜索功能
         async function searchMusic() {
             const query = document.getElementById('searchInput').value;
             const platform = document.getElementById('platform').value;
-            const apiUrl = `https://api.injahow.cn/${platform}/search?keyword=${encodeURIComponent(query)}`;
+            
+            // 不同平台的请求参数适配
+            let apiUrl;
+            switch(platform) {
+                case 'netease':
+                    apiUrl = `${APIs.netease}search?keywords=${encodeURIComponent(query)}`;
+                    break;
+                case 'kugou':
+                    apiUrl = `${APIs.kugou}search?keyword=${encodeURIComponent(query)}`;
+                    break;
+                case 'migu':
+                    apiUrl = `${APIs.migu}search?keyword=${encodeURIComponent(query)}`;
+                    break;
+            }
 
             try {
-                const response = await fetch(apiUrl);
+                // 添加请求头避免CORS问题
+                const response = await fetch(apiUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0' // 模拟浏览器请求
+                    }
+                });
+                
+                if (!response.ok) throw new Error(`HTTP错误: ${response.status}`);
+                
                 const data = await response.json();
-                displayResults(data.result.songs || data.data || []);
+                console.log('API响应数据:', data); // 调试用
+                displayResults(data.result?.songs || data.data || []);
+                
             } catch (error) {
                 console.error('搜索失败:', error);
+                alert(`搜索失败: ${error.message}`);
             }
         }
 
@@ -148,8 +179,8 @@
 
         // 播放歌曲
         async function playSong(id, platform) {
-            const apiUrl = `https://api.injahow.cn/${platform}/song/url?id=${id}`;
-            const lyricUrl = `https://api.injahow.cn/${platform}/lyric?id=${id}`;
+            const apiUrl = `${APIs[platform]}song/url?id=${id}`;
+            const lyricUrl = `${APIs[platform]}lyric?id=${id}`;
 
             try {
                 const [audioRes, lyricRes] = await Promise.all([fetch(apiUrl), fetch(lyricUrl)]);

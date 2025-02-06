@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>全功能音乐播放器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* 基础样式 */
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .player {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .controls button {
+            padding: 10px 15px;
+            border: none;
+            background: #2196F3;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #1976D2;
+        }
+        .progress-container {
+            background: #ddd;
+            height: 4px;
+            border-radius: 2px;
+            margin: 15px 0;
+            cursor: pointer;
+        }
+        #progress {
+            width: 0;
+            height: 100%;
+            background: #2196F3;
+            transition: width 0.1s linear;
+        }
+        .lyrics-box {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 15px 0;
+            background: #fafafa;
+            border-radius: 5px;
+        }
+        .highlight {
+            color: #2196F3;
+            font-weight: bold;
+        }
+        #searchResults li {
+            padding: 8px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        #searchResults li:hover {
+            background: #e3f2fd;
+        }
+    </style>
+</head>
+<body>
+    <div class="player">
+        <!-- 搜索区域 -->
+        <div>
+            <input type="text" id="searchInput" placeholder="输入歌名或歌手">
+            <button onclick="searchMusic()">搜索</button>
+            <select id="platform">
+                <option value="netease">网易云音乐</option>
+                <option value="kugou">酷狗音乐</option>
+                <option value="migu">咪咕音乐</option>
+            </select>
+        </div>
+        <div id="searchResults"></div>
+
+        <!-- 播放控制 -->
+        <div class="controls">
+            <button onclick="audio.play()">▶ 播放</button>
+            <button onclick="audio.pause()">⏸ 暂停</button>
+            <button onclick="audio.volume += 0.1">🔊 音量+</button>
+            <button onclick="audio.volume -= 0.1">🔉 音量-</button>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="progress-container" onclick="seek(event)">
+            <div id="progress"></div>
+        </div>
+
+        <!-- 歌词显示 -->
+        <div class="lyrics-box" id="lyrics"></div>
+
+        <!-- 链接导入 -->
+        <div>
+            <input type="text" id="importInput" placeholder="输入音乐链接">
+            <button onclick="importMusic()">导入</button>
+        </div>
+
+        <!-- 本地文件支持 -->
+        <div>
+            <input type="file" id="fileInput" accept="audio/*">
+            <button onclick="playLocalFile()">播放本地文件</button>
+        </div>
+    </div>
+
+    <script>
+        // 初始化
+        const audio = new Audio();
+        let currentLyrics = [];
+        let currentDuration = 0;
+
+        // 搜索功能
+        async function searchMusic() {
+            const query = document.getElementById('searchInput').value;
+            const platform = document.getElementById('platform').value;
+            const apiUrl = `https://api.injahow.cn/${platform}/search?keyword=${encodeURIComponent(query)}`;
+
+            try {
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                displayResults(data.result.songs || data.data || []);
+            } catch (error) {
+                console.error('搜索失败:', error);
+            }
+        }
+
+        // 显示搜索结果
+        function displayResults(songs) {
+            const list = songs.map(song => `
+                <li onclick="playSong('${song.id}', '${document.getElementById('platform').value}')">
+                    ${song.name} - ${song.artists?.[0]?.name || song.singer}
+                </li>
+            `).join('');
+            document.getElementById('searchResults').innerHTML = `<ul>${list}</ul>`;
+        }
+
+        // 播放歌曲
+        async function playSong(id, platform) {
+            const apiUrl = `https://api.injahow.cn/${platform}/song/url?id=${id}`;
+            const lyricUrl = `https://api.injahow.cn/${platform}/lyric?id=${id}`;
+
+            try {
+                const [audioRes, lyricRes] = await Promise.all([fetch(apiUrl), fetch(lyricUrl)]);
+                const audioData = await audioRes.json();
+                const lyricData = await lyricRes.json();
+
+                audio.src = audioData.data?.[0]?.url || audioData.url;
+                currentLyrics = parseLyric(lyricData.lrc?.lyric || '');
+                audio.play();
+
+                audio.addEventListener('loadedmetadata', () => {
+                    currentDuration = audio.duration;
+                });
+            } catch (error) {
+                console.error('播放失败:', error);
+            }
+        }
+
+        // 歌词解析
+        function parseLyric(lrc) {
+            return lrc.split('\n')
+                .map(line => {
+                    const parts = line.match(/\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/);
+                    return parts ? {
+                        time: parseInt(parts[1]) * 60 + parseFloat(parts[2]),
+                        text: parts[3].trim()
+                    } : null;
+                })
+                .filter(Boolean);
+        }
+
+        // 更新进度条和歌词
+        audio.addEventListener('timeupdate', () => {
+            const progressPercent = (audio.currentTime / currentDuration) * 100;
+            document.getElementById('progress').style.width = `${progressPercent}%`;
+
+            const currentTime = audio.currentTime;
+            const activeLine = currentLyrics.findIndex(line => line.time > currentTime) - 1;
+            const lyricsDiv = document.getElementById('lyrics');
+
+            lyricsDiv.innerHTML = currentLyrics.map((line, index) => `
+                <div class="${index === activeLine ? 'highlight' : ''}">${line.text}</div>
+            `).join('');
+
+            if (activeLine > 2) {
+                lyricsDiv.scrollTop = (activeLine - 2) * 25;
+            }
+        });
+
+        // 点击进度条跳转
+        function seek(event) {
+            const rect = event.target.getBoundingClientRect();
+            const percent = (event.clientX - rect.left) / rect.width;
+            audio.currentTime = percent * currentDuration;
+        }
+
+        // 播放本地文件
+        function playLocalFile() {
+            const file = document.getElementById('fileInput').files[0];
+            if (file) {
+                audio.src = URL.createObjectURL(file);
+                audio.play();
+            }
+        }
+
+        // 快捷键支持
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space') {
+                audio.paused ? audio.play() : audio.pause();
+            } else if (event.code === 'ArrowRight') {
+                audio.currentTime += 5;
+            } else if (event.code === 'ArrowLeft') {
+                audio.currentTime -= 5;
+            }
+        });
+    </script>
+</body>
+</html>

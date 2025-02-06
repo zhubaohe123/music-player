@@ -90,7 +90,6 @@
             <select id="platform">
                 <option value="netease">网易云音乐</option>
                 <option value="kugou">酷狗音乐</option>
-                <option value="migu">咪咕音乐</option>
             </select>
         </div>
         <div id="searchResults"></div>
@@ -130,11 +129,10 @@
         let currentLyrics = [];
         let currentDuration = 0;
 
-        // 使用稳定的公共API配置
+        // 使用新的音乐API配置
         const APIs = {
-            netease: 'https://netease-api.vercel.app/',
-            kugou: 'https://kugou-api.vercel.app/',
-            migu: 'https://migu-api.vercel.app/'
+            netease: 'https://music.163.com/api',
+            kugou: 'https://www.kugou.com/yy/api/v1.0'
         };
 
         // 设置背景
@@ -158,35 +156,36 @@
         async function searchMusic() {
             const query = document.getElementById('searchInput').value;
             const platform = document.getElementById('platform').value;
-            
+
             // 不同平台的请求参数适配
             let apiUrl;
+            let params;
             switch(platform) {
                 case 'netease':
-                    apiUrl = `${APIs.netease}search?keywords=${encodeURIComponent(query)}`;
+                    apiUrl = `${APIs.netease}/search/get`;
+                    params = { type: 1, s: query };
                     break;
                 case 'kugou':
-                    apiUrl = `${APIs.kugou}search?keyword=${encodeURIComponent(query)}`;
-                    break;
-                case 'migu':
-                    apiUrl = `${APIs.migu}search?keyword=${encodeURIComponent(query)}`;
+                    apiUrl = `${APIs.kugou}/search/song`;
+                    params = { keyword: query };
                     break;
             }
 
             try {
-                // 添加请求头避免CORS问题
                 const response = await fetch(apiUrl, {
+                    method: 'POST',
                     headers: {
-                        'User-Agent': 'Mozilla/5.0' // 模拟浏览器请求
-                    }
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'User-Agent': 'Mozilla/5.0'
+                    },
+                    body: new URLSearchParams(params)
                 });
-                
+
                 if (!response.ok) throw new Error(`HTTP错误: ${response.status}`);
-                
+
                 const data = await response.json();
-                console.log('API响应数据:', data); // 调试用
-                displayResults(data.result?.songs || data.data || []);
-                
+                console.log('API响应数据:', data);
+                displayResults(data.data.songs || data.data.list || []);
             } catch (error) {
                 console.error('搜索失败:', error);
                 alert(`搜索失败: ${error.message}`);
@@ -197,7 +196,7 @@
         function displayResults(songs) {
             const list = songs.map(song => `
                 <li onclick="playSong('${song.id}', '${document.getElementById('platform').value}')">
-                    ${song.name} - ${song.artists?.[0]?.name || song.singer}
+                    ${song.name} - ${song.authors[0].name || song.singer}
                 </li>
             `).join('');
             document.getElementById('searchResults').innerHTML = `<ul>${list}</ul>`;
@@ -205,16 +204,30 @@
 
         // 播放歌曲
         async function playSong(id, platform) {
-            const apiUrl = `${APIs[platform]}song/url?id=${id}`;
-            const lyricUrl = `${APIs[platform]}lyric?id=${id}`;
+            let apiUrl;
+            let lyricUrl;
+            switch(platform) {
+                case 'netease':
+                    apiUrl = `${APIs.netease}/song/detail?ids=${id}`;
+                    lyricUrl = `${APIs.netease}/lyric?id=${id}`;
+                    break;
+                case 'kugou':
+                    apiUrl = `${APIs.kugou}/song/info?id=${id}`;
+                    lyricUrl = `${APIs.kugou}/lyric?id=${id}`;
+                    break;
+            }
 
             try {
-                const [audioRes, lyricRes] = await Promise.all([fetch(apiUrl), fetch(lyricUrl)]);
+                const [audioRes, lyricRes] = await Promise.all([
+                    fetch(apiUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }),
+                    fetch(lyricUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+                ]);
+
                 const audioData = await audioRes.json();
                 const lyricData = await lyricRes.json();
 
-                audio.src = audioData.data?.[0]?.url || audioData.url;
-                currentLyrics = parseLyric(lyricData.lrc?.lyric || '');
+                audio.src = audioData.data[0].url || audioData.url;
+                currentLyrics = parseLyric(lyricData.lyric);
                 audio.play();
 
                 audio.addEventListener('loadedmetadata', () => {
@@ -222,6 +235,7 @@
                 });
             } catch (error) {
                 console.error('播放失败:', error);
+                alert(`播放失败: ${error.message}`);
             }
         }
 
@@ -229,7 +243,7 @@
         function parseLyric(lrc) {
             return lrc.split('\n')
                 .map(line => {
-                    const parts = line.match(/\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/);
+                    const parts = line.match(/\[(\d{2}):(\d{2}\.\d{2})\](.*)/);
                     return parts ? {
                         time: parseInt(parts[1]) * 60 + parseFloat(parts[2]),
                         text: parts[3].trim()

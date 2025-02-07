@@ -13,6 +13,7 @@
             background-position: center;
             background-repeat: no-repeat;
             min-height: 100vh;
+            transition: background-image 0.5s;
         }
         .player {
             max-width: 600px;
@@ -73,6 +74,7 @@
         #searchResults li:hover {
             background: #e3f2fd;
         }
+
     </style>
 </head>
 <body>
@@ -90,6 +92,7 @@
             <select id="platform">
                 <option value="netease">网易云音乐</option>
                 <option value="kugou">酷狗音乐</option>
+                <option value="migu">咪咕音乐</option>
             </select>
         </div>
         <div id="searchResults"></div>
@@ -123,127 +126,78 @@
         </div>
     </div>
 
-    <script>
-        // 初始化
+    <script type="module">
+        // ==================== 播放器核心 ====================
         const audio = new Audio();
         let currentLyrics = [];
         let currentDuration = 0;
 
-        // 使用新的音乐API配置
-        const APIs = {
-            netease: 'https://music.163.com/api',
-            kugou: 'https://www.kugou.com/yy/api/v1.0'
-        };
+        // ==================== API配置 ====================
+        const API_BASE = 'https://YOUR_API_SERVICE.vercel.app';  // 替换为你的API服务地址
 
-        // 设置背景
-        function setBackground(event) {
+        // ==================== 背景功能 ====================
+        async function setBackground(event) {
             const file = event.target.files[0];
             if (file) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
+                    localStorage.setItem('backgroundUrl', e.target.result);
                     document.body.style.backgroundImage = `url(${e.target.result})`;
                 };
                 reader.readAsDataURL(file);
             }
         }
 
-        // 清除背景
         function clearBackground() {
             document.body.style.backgroundImage = '';
+            localStorage.removeItem('backgroundUrl');
         }
 
-        // 搜索功能
+        window.onload = () => {
+            const savedBg = localStorage.getItem('backgroundUrl');
+            if (savedBg) document.body.style.backgroundImage = `url(${savedBg})`;
+        };
+
+        // ==================== 音乐功能 ====================
         async function searchMusic() {
             const query = document.getElementById('searchInput').value;
             const platform = document.getElementById('platform').value;
-
-            // 不同平台的请求参数适配
-            let apiUrl;
-            let params;
-            switch(platform) {
-                case 'netease':
-                    apiUrl = `${APIs.netease}/search/get`;
-                    params = { type: 1, s: query };
-                    break;
-                case 'kugou':
-                    apiUrl = `${APIs.kugou}/search/song`;
-                    params = { keyword: query };
-                    break;
-            }
-
+            
             try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'User-Agent': 'Mozilla/5.0'
-                    },
-                    body: new URLSearchParams(params)
-                });
-
+                const response = await fetch(`${API_BASE}/search?keyword=${encodeURIComponent(query)}&platform=${platform}`);
                 if (!response.ok) throw new Error(`HTTP错误: ${response.status}`);
-
                 const data = await response.json();
-                console.log('API响应数据:', data);
-                displayResults(data.data.songs || data.data.list || []);
+                displayResults(data.result?.songs || data.data || []);
             } catch (error) {
-                console.error('搜索失败:', error);
                 alert(`搜索失败: ${error.message}`);
             }
         }
 
-        // 显示搜索结果
         function displayResults(songs) {
             const list = songs.map(song => `
-                <li onclick="playSong('${song.id}', '${document.getElementById('platform').value}')">
-                    ${song.name} - ${song.authors[0].name || song.singer}
+                <li onclick="playSong('${song.id || song.hash}', '${document.getElementById('platform').value}')">
+                    ${song.name} - ${song.artists?.[0]?.name || song.singer}
                 </li>
             `).join('');
             document.getElementById('searchResults').innerHTML = `<ul>${list}</ul>`;
         }
 
-        // 播放歌曲
         async function playSong(id, platform) {
-            let apiUrl;
-            let lyricUrl;
-            switch(platform) {
-                case 'netease':
-                    apiUrl = `${APIs.netease}/song/detail?ids=${id}`;
-                    lyricUrl = `${APIs.netease}/lyric?id=${id}`;
-                    break;
-                case 'kugou':
-                    apiUrl = `${APIs.kugou}/song/info?id=${id}`;
-                    lyricUrl = `${APIs.kugou}/lyric?id=${id}`;
-                    break;
-            }
-
             try {
-                const [audioRes, lyricRes] = await Promise.all([
-                    fetch(apiUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }),
-                    fetch(lyricUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-                ]);
-
-                const audioData = await audioRes.json();
-                const lyricData = await lyricRes.json();
-
-                audio.src = audioData.data[0].url || audioData.url;
-                currentLyrics = parseLyric(lyricData.lyric);
+                const response = await fetch(`${API_BASE}/song/url?id=${id}&platform=${platform}`);
+                const data = await response.json();
+                audio.src = data.data?.[0]?.url || data.url;
                 audio.play();
-
-                audio.addEventListener('loadedmetadata', () => {
-                    currentDuration = audio.duration;
-                });
             } catch (error) {
-                console.error('播放失败:', error);
-                alert(`播放失败: ${error.message}`);
+                alert('播放失败: ' + error.message);
             }
         }
 
-        // 歌词解析
+        // ==================== 其他功能 ====================
         function parseLyric(lrc) {
             return lrc.split('\n')
                 .map(line => {
-                    const parts = line.match(/\[(\d{2}):(\d{2}\.\d{2})\](.*)/);
+                    const parts = line.match(/\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/);
                     return parts ? {
                         time: parseInt(parts[1]) * 60 + parseFloat(parts[2]),
                         text: parts[3].trim()
@@ -252,7 +206,6 @@
                 .filter(Boolean);
         }
 
-        // 更新进度条和歌词
         audio.addEventListener('timeupdate', () => {
             const progressPercent = (audio.currentTime / currentDuration) * 100;
             document.getElementById('progress').style.width = `${progressPercent}%`;
@@ -265,36 +218,42 @@
                 <div class="${index === activeLine ? 'highlight' : ''}">${line.text}</div>
             `).join('');
 
-            if (activeLine > 2) {
-                lyricsDiv.scrollTop = (activeLine - 2) * 25;
-            }
+            if (activeLine > 2) lyricsDiv.scrollTop = (activeLine - 2) * 25;
         });
 
-        // 点击进度条跳转
         function seek(event) {
             const rect = event.target.getBoundingClientRect();
             const percent = (event.clientX - rect.left) / rect.width;
             audio.currentTime = percent * currentDuration;
         }
 
-        // 播放本地文件
         function playLocalFile() {
             const file = document.getElementById('fileInput').files[0];
-            if (file) {
-                audio.src = URL.createObjectURL(file);
-                audio.play();
+            if (file) audio.src = URL.createObjectURL(file);
+        }
+
+        async function importMusic() {
+            const url = document.getElementById('importInput').value;
+            try {
+                if (url.includes('kugou.com')) {
+                    const hash = url.split('song/')[1].split('.')[0];
+                    playSong(hash, 'kugou');
+                } else if (url.includes('music.163.com')) {
+                    const songId = url.match(/id=(\d+)/)[1];
+                    playSong(songId, 'netease');
+                } else {
+                    alert('暂不支持该平台链接');
+                }
+            } catch (error) {
+                alert('链接解析失败: ' + error.message);
             }
         }
 
-        // 快捷键支持
+        // ==================== 快捷键支持 ====================
         document.addEventListener('keydown', (event) => {
-            if (event.code === 'Space') {
-                audio.paused ? audio.play() : audio.pause();
-            } else if (event.code === 'ArrowRight') {
-                audio.currentTime += 5;
-            } else if (event.code === 'ArrowLeft') {
-                audio.currentTime -= 5;
-            }
+            if (event.code === 'Space') audio.paused ? audio.play() : audio.pause();
+            if (event.code === 'ArrowRight') audio.currentTime += 5;
+            if (event.code === 'ArrowLeft') audio.currentTime -= 5;
         });
     </script>
 </body>
